@@ -7,9 +7,17 @@ const fetch = require('node-fetch');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const app = express(); // Create 'app' first
-app.use(helmet());     // Now it can use helmet
-// Initialize Firebase Admin SDK
-// This version is much safer against "Bad Control Character" errors
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'", "data:", "assets/", "https://*.onrender.com"], // Add your image domains here
+      "font-src": ["'self'", "https://fonts.gstatic.com", "https://*.com"], // Add your font domains here
+      "script-src": ["'self'", "'unsafe-inline'"],
+      "connect-src": ["'self'", "https://backend-typica.onrender.com", "https://identitytoolkit.googleapis.com"]
+    },
+  },
+}));
 // --- updated 2 ---
 let serviceAccount;
 
