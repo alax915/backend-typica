@@ -8,15 +8,16 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const app = express(); // Create 'app' first
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      "default-src": ["'self'"],
-      "img-src": ["'self'", "data:", "assets/", "https://*.onrender.com"], // Add your image domains here
-      "font-src": ["'self'", "https://fonts.gstatic.com", "https://*.com"], // Add your font domains here
-      "script-src": ["'self'", "'unsafe-inline'"],
-      "connect-src": ["'self'", "https://backend-typica.onrender.com", "https://identitytoolkit.googleapis.com"]
+    contentSecurityPolicy: {
+        directives: {
+            "default-src": ["'self'"],
+            "script-src": ["'self'", "'unsafe-inline'"],
+            "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            "img-src": ["'self'", "data:", "https:", "http:"], 
+            "font-src": ["'self'", "https://fonts.gstatic.com"], 
+            "connect-src": ["'self'", "https://backend-typica.onrender.com", "https://identitytoolkit.googleapis.com"]
+        },
     },
-  },
 }));
 // --- updated 2 ---
 let serviceAccount;
