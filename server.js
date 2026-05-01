@@ -10,22 +10,26 @@ const app = express(); // Create 'app' first
 app.use(helmet());     // Now it can use helmet
 // Initialize Firebase Admin SDK
 // This version is much safer against "Bad Control Character" errors
-// --- updated1 ---
+// --- updated 2 ---
 let serviceAccount;
 
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     try {
-        let rawKey = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
-        
-        // This line converts the literal text "\n" into real newlines for Firebase
-        const fixedKey = rawKey.replace(/\\n/g, '\n');
-        
-        serviceAccount = JSON.parse(fixedKey);
+        // 1. Get the raw string and trim it
+        const rawData = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+
+        // 2. Parse it into an object FIRST
+        serviceAccount = JSON.parse(rawData);
+
+        // 3. NOW fix the newlines ONLY inside the private_key field
+        if (serviceAccount.private_key) {
+            serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+        }
+
         console.log("Firebase Service Account parsed successfully.");
     } catch (error) {
-        console.error("CRITICAL: JSON Parse Error in FIREBASE_SERVICE_ACCOUNT:");
+        console.error("CRITICAL: JSON Parse Error. Check your Render Environment Variable.");
         console.error(error.message);
-        // This will show you exactly where the "Bad control character" is
     }
 } else {
     try {
@@ -33,8 +37,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     } catch (e) {
         console.error("Local serviceAccountKey.json not found.");
     }
-}
-// 🔑 CONFIGURATION
+}// 🔑 CONFIGURATION
 // your Web API Key 
 const FIREBASE_API_KEY = "AIzaSyDKYgnT9E_WEcOaZXK1xSgZpLWC-JREp28";
 admin.initializeApp({
