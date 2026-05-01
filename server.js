@@ -871,6 +871,7 @@ app.get('/api/user/profile-summary/:uid', async (req, res) => {
 
         // 4. Safe Transaction Processing
         try {
+            // Simplified query to avoid index issues while debugging
             const transSnap = await db.collection('transactions').where('userId', '==', uid).get();
             if (!transSnap.empty) {
                 transSnap.forEach(doc => {
@@ -883,6 +884,11 @@ app.get('/api/user/profile-summary/:uid', async (req, res) => {
                         totals.withdrawal += amt;
                     }
                 });
+            }
+        } catch (e) {
+            console.error("⚠️ Firestore Query failed. Ensure indexes are created on Render/Firebase console:", e.message);
+            // We do NOT re-throw the error so the profile still loads even if transactions fail
+        }
             }
         } catch (e) {
             console.log("⚠️ Transactions skip:", e.message);
