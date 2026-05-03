@@ -155,6 +155,34 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+// GET USER PROFILE DATA
+app.get('/api/user/:uid', async (req, res) => {
+    try {
+        const { uid } = req.params;
+        
+        // Fetch user from Firestore
+        const userDoc = await db.collection('users').doc(uid).get();
+
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const userData = userDoc.data();
+
+        // Return only the necessary info to the home page
+        res.status(200).json({
+            phoneNumber: userData.phoneNumber,
+            balance: userData.balance,
+            myReferralCode: userData.myReferralCode,
+            totalReferrals: userData.totalReferrals,
+            accountStatus: userData.accountStatus
+        });
+
+    } catch (error) {
+        console.error("Error fetching profile:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
