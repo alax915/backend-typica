@@ -241,7 +241,7 @@ app.post('/api/recharge/request', async (req, res) => {
         }
 
         const transactionId = `recharge_${uid}_${Date.now()}`;
-        const transactionRef = db.collection('transactions').doc(transactionId);
+        const transactionRef = db.collection('recharge-requests').doc(transactionId);
 
         const transactionData = {
             userId: uid,
