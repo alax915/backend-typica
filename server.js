@@ -270,7 +270,7 @@ app.post('/api/recharge/request', async (req, res) => {
     }
 });
 
-// Withdrawal Request Endpoint
+// --- NEW WITHDRAWAL REQUEST ENDPOINT ---
 app.post('/api/withdraw/request', async (req, res) => {
     try {
         const { uid, amount, fee, netAmount, phoneNumber, bankAccount } = req.body;
@@ -281,22 +281,22 @@ app.post('/api/withdraw/request', async (req, res) => {
 
         const userRef = db.collection('users').doc(uid);
         
-        // Use a Transaction to ensure balance is checked and deducted safely
+        // Use a transaction for security: Deduct balance and create request together
         await db.runTransaction(async (t) => {
             const userDoc = await t.get(userRef);
-            if (!userDoc.exists) throw new Error("User not found");
+            if (!userDoc.exists) throw new Error("User profile not found");
             
             const currentBalance = userDoc.data().balance || 0;
             if (amount > currentBalance) throw new Error("Insufficient balance");
 
-            // 1. Deduct balance immediately
+            // 1. Deduct balance immediately from the user account
             t.update(userRef, {
                 balance: currentBalance - amount,
                 lastWithdrawAt: admin.firestore.FieldValue.serverTimestamp(),
                 totalWithdrawals: admin.firestore.FieldValue.increment(1)
             });
 
-            // 2. Create the pending transaction record
+            // 2. Create the pending transaction record for admin review
             const transactionId = `withdraw_${uid}_${Date.now()}`;
             const transRef = db.collection('withdraw-requests').doc(transactionId);
             
@@ -307,14 +307,14 @@ app.post('/api/withdraw/request', async (req, res) => {
                 amount: parseFloat(amount),
                 fee: parseFloat(fee),
                 netAmount: parseFloat(netAmount),
-                status: 'pending', // Set to pending as requested
-                bankAccount: bankAccount,
+                status: 'pending', // Set as pending for admin approval[cite: 6]
+                bankAccount: bankAccount || {},
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 transactionId: transactionId
             });
         });
 
-        res.status(200).json({ success: true, message: "Withdrawal pending approval" });
+        res.status(200).json({ success: true, message: "Withdrawal submitted and pending" });
 
     } catch (error) {
         console.error("Withdraw Error:", error);
