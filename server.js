@@ -117,41 +117,66 @@ app.get('/', (req, res) => {
 });
 
 // --- LOGIN ROUTE ---
+// At the very top of server.js, add this line
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+
+// --- UPDATED LOGIN ROUTE ---
 app.post('/api/login', async (req, res) => {
     try {
         const { phoneDigits, password } = req.body;
         const email = `251${phoneDigits}@phone.auth`;
 
-        // 1. IDENTITY CHECK: Find the user in Firebase Auth
-        // The Admin SDK fetches the user record by email to get their UID
-        const userRecord = await admin.auth().getUserByEmail(email);
+        // 1. VERIFY PASSWORD via Firebase REST API
+        // You need your "Web API Key" from Firebase Project Settings -> General
+        const FIREBASE_API_KEY = process.env.FIREBASE_CLIENT_API_KEY; 
+        
+        const signInResponse = await fetch(
+            `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    email: email, 
+                    password: password, 
+                    returnSecureToken: true 
+                }),
+                headers: { 'Content-Type': 'application/json' }
+            }
+        );
 
-        // 2. DATABASE CHECK: Verify account status in Firestore[cite: 2]
-        const userDoc = await db.collection('users').doc(userRecord.uid).get();
+        const signInData = await signInResponse.json();
+
+        // If Firebase says the password or email is wrong
+        if (signInData.error) {
+            console.log("❌ Authentication failed:", signInData.error.message);
+            return res.status(401).json({ error: "Invalid phone number or password." });
+        }
+
+        const uid = signInData.localId;
+
+        // 2. DATABASE CHECK: Verify account status in Firestore
+        const userDoc = await db.collection('users').doc(uid).get();
 
         if (!userDoc.exists) {
-            return res.status(404).json({ error: "User profile not found." });
+            return res.status(404).json({ error: "User profile not found in database." });
         }
 
         const userData = userDoc.data();
 
-        // Check if the admin has blocked this user[cite: 2]
+        // Check if account is disabled
         if (userData.accountStatus === 'disabled') {
             return res.status(403).json({ error: "Account disabled. Please contact support." });
         }
 
-        // 3. SUCCESS: Send the UID back to the frontend
-        // In a full production app, you'd use a password verification check here, 
-        // but for now, we are authorizing based on valid Auth records.
+        // 3. SUCCESS: Password is correct and account is active
         res.status(200).json({
             success: true,
-            uid: userRecord.uid,
+            uid: uid,
             message: "Login successful"
         });
 
     } catch (error) {
         console.error("Login Error:", error);
-        res.status(401).json({ error: "Invalid phone number or user not found." });
+        res.status(500).json({ error: "Internal server error during login." });
     }
 });
 
