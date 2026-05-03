@@ -81,8 +81,9 @@ app.post('/api/register', async (req, res) => {
             phoneDigits: phoneDigits,
             email: email,
             payPassword: payPassword || null,
-            balance: 25,
+            balance: 25, // Initial signup bonus
             coupons: 5,
+            readNews: [], // CRITICAL: Initializes empty list for news tracking[cite: 5]
             myReferralCode: myReferralCode,
             isMasterAccount: isFirstUser,
             accountType: isFirstUser ? 'master' : 'regular',
@@ -227,6 +228,45 @@ app.get('/api/news', async (req, res) => {
     } catch (error) {
         console.error("Error fetching news:", error);
         res.status(500).json({ error: "Failed to fetch news" });
+    }
+});
+
+// Recharge Request Endpoint
+app.post('/api/recharge/request', async (req, res) => {
+    try {
+        const { uid, amount, method, phoneNumber } = req.body;
+
+        if (!uid || !amount || !method) {
+            return res.status(400).json({ error: "Missing transaction details" });
+        }
+
+        const transactionId = `recharge_${uid}_${Date.now()}`;
+        const transactionRef = db.collection('transactions').doc(transactionId);
+
+        const transactionData = {
+            userId: uid,
+            userPhone: phoneNumber || 'Unknown',
+            type: 'recharge',
+            amount: parseFloat(amount),
+            method: method,
+            status: 'pending', // Requires admin approval to update balance[cite: 6]
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            transactionId: transactionId
+        };
+
+        await transactionRef.set(transactionData);
+
+        console.log(`✅ Recharge request created: ${transactionId}`);
+        
+        res.status(200).json({ 
+            success: true, 
+            message: "Recharge request submitted. Pending admin approval.",
+            transactionId: transactionId
+        });
+
+    } catch (error) {
+        console.error("Recharge Error:", error);
+        res.status(500).json({ error: "Internal server error processing recharge" });
     }
 });
 // 5. START SERVER
