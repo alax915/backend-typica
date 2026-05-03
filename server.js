@@ -197,7 +197,20 @@ app.get('/api/user/:uid', async (req, res) => {
             balance: userData.balance,
             myReferralCode: userData.myReferralCode,
             totalReferrals: userData.totalReferrals,
-            accountStatus: userData.accountStatus
+            accountStatus: userData.accountStatus,
+            accountLevel: userData.accountLevel,
+            accountStatus: userData.accountStatus,
+            accountType: userData.accountType,
+            bankAccount: userData.bankAccount,
+            checkinHistory: userData.checkinHistory,
+            coupons: userData.coupons,
+            createdAt: userData.createdAt,
+            dailyCheckins: userData.dailyCheckins,
+            hasSignedContract: userData.hasSignedContract,
+            inviteCode: userData.inviteCode,
+            isMasterAccount: userData.isMasterAccount,
+            payPassword: userData.payPassword,
+            uid: userData.uid
         });
 
     } catch (error) {
