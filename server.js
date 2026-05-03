@@ -269,6 +269,58 @@ app.post('/api/recharge/request', async (req, res) => {
         res.status(500).json({ error: "Internal server error processing recharge" });
     }
 });
+
+// Withdrawal Request Endpoint
+app.post('/api/withdraw/request', async (req, res) => {
+    try {
+        const { uid, amount, fee, netAmount, phoneNumber, bankAccount } = req.body;
+
+        if (!uid || !amount) {
+            return res.status(400).json({ error: "Missing withdrawal details" });
+        }
+
+        const userRef = db.collection('users').doc(uid);
+        
+        // Use a Transaction to ensure balance is checked and deducted safely
+        await db.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            if (!userDoc.exists) throw new Error("User not found");
+            
+            const currentBalance = userDoc.data().balance || 0;
+            if (amount > currentBalance) throw new Error("Insufficient balance");
+
+            // 1. Deduct balance immediately
+            t.update(userRef, {
+                balance: currentBalance - amount,
+                lastWithdrawAt: admin.firestore.FieldValue.serverTimestamp(),
+                totalWithdrawals: admin.firestore.FieldValue.increment(1)
+            });
+
+            // 2. Create the pending transaction record
+            const transactionId = `withdraw_${uid}_${Date.now()}`;
+            const transRef = db.collection('withdraw-requests').doc(transactionId);
+            
+            t.set(transRef, {
+                userId: uid,
+                userPhone: phoneNumber,
+                type: 'withdraw',
+                amount: parseFloat(amount),
+                fee: parseFloat(fee),
+                netAmount: parseFloat(netAmount),
+                status: 'pending', // Set to pending as requested
+                bankAccount: bankAccount,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                transactionId: transactionId
+            });
+        });
+
+        res.status(200).json({ success: true, message: "Withdrawal pending approval" });
+
+    } catch (error) {
+        console.error("Withdraw Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
