@@ -5,7 +5,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
 const admin = require('firebase-admin');
-
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 // 1. CONFIGURATION
 dotenv.config();
 
@@ -115,10 +115,6 @@ app.post('/api/register', async (req, res) => {
 app.get('/', (req, res) => {
   res.send('Backend Server is Running');
 });
-
-// --- LOGIN ROUTE ---
-// At the very top of server.js, add this line
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 // --- UPDATED LOGIN ROUTE ---
 app.post('/api/login', async (req, res) => {
