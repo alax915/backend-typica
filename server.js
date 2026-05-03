@@ -204,6 +204,31 @@ app.get('/api/user/:uid', async (req, res) => {
         res.status(500).json({ error: "Internal server error" });
     }
 });
+
+//News Fetching Route
+app.get('/api/news', async (req, res) => {
+    try {
+        const newsSnapshot = await db.collection('news')
+            .orderBy('timestamp', 'desc')
+            .limit(10)
+            .get();
+
+        const news = [];
+        newsSnapshot.forEach(doc => {
+            news.push({ 
+                id: doc.id, 
+                ...doc.data(),
+                // Convert Firestore timestamp to a format JS understands
+                timestamp: doc.data().timestamp ? doc.data().timestamp.toDate() : new Date() 
+            });
+        });
+
+        res.status(200).json(news);
+    } catch (error) {
+        console.error("Error fetching news:", error);
+        res.status(500).json({ error: "Failed to fetch news" });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
