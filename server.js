@@ -334,6 +334,71 @@ app.post('/api/withdraw/request', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// --- CASH GIFT ENDPOINT ---
+app.post('/api/gift/send', async (req, res) => {
+    try {
+        const { senderUid, recipientPhone, amount, bonus, message } = req.body;
+        const totalDeduction = parseFloat(amount) + parseFloat(bonus);
+
+        if (!senderUid || !recipientPhone || !amount) {
+            return res.status(400).json({ error: "Missing gift details" });
+        }
+
+        const senderRef = db.collection('users').doc(senderUid);
+        
+        // Find recipient by phone number
+        const formattedPhone = `+251${recipientPhone.replace(/\D/g, '')}`;
+        const recipientQuery = await db.collection('users').where('phoneNumber', '==', formattedPhone).get();
+
+        if (recipientQuery.empty) {
+            return res.status(404).json({ error: "Recipient not found. Check the phone number." });
+        }
+
+        const recipientDoc = recipientQuery.docs[0];
+        const recipientRef = db.collection('users').doc(recipientDoc.id);
+
+        // Run transaction to swap funds securely
+        await db.runTransaction(async (t) => {
+            const senderDoc = await t.get(senderRef);
+            if (!senderDoc.exists) throw new Error("Sender not found");
+
+            const senderBalance = senderDoc.data().balance || 0;
+            if (senderBalance < totalDeduction) throw new Error("Insufficient balance");
+
+            const recipientBalance = recipientDoc.data().balance || 0;
+
+            // 1. Deduct from sender
+            t.update(senderRef, { 
+                balance: senderBalance - totalDeduction 
+            });
+
+            // 2. Add to recipient
+            t.update(recipientRef, { 
+                balance: recipientBalance + parseFloat(amount) 
+            });
+
+            // 3. Log the gift record
+            const giftRef = db.collection('gifts').doc();
+            t.set(giftRef, {
+                senderId: senderUid,
+                recipientId: recipientDoc.id,
+                amount: parseFloat(amount),
+                bonus: parseFloat(bonus),
+                total: totalDeduction,
+                message: message || "",
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                status: 'completed'
+            });
+        });
+
+        res.status(200).json({ success: true, message: "Gift sent successfully!" });
+
+    } catch (error) {
+        console.error("Gift Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
