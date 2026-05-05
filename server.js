@@ -483,6 +483,71 @@ app.post('/api/lucky-draw/spin', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// POST /api/purchase-product
+app.post('/api/purchase-product', async (req, res) => {
+    const { userId, productId } = req.body;
+
+    if (!userId || !productId) {
+        return res.status(400).json({ success: false, message: "Missing data" });
+    }
+
+    // Product Data (Source of Truth)
+    const PRODUCTS_SOT = {
+        'samsung-phone': { price: 7000, title: 'Galaxy S23 Ultra', limit: 5 },
+        'mac-book-pro': { price: 12000, title: 'Mac-Book-Pro', limit: 7 },
+        'smart-watch': { price: 2000, title: 'Smart-Watch', limit: 2 },
+        'head-phone': { price: 1200, title: 'Head-Phone', limit: 1 },
+        'tablet': { price: 4000, title: 'Tablet', limit: 3 },
+        'gaming-console': { price: 24000, title: 'Gaming-Console', limit: 15 }
+    };
+
+    const product = PRODUCTS_SOT[productId];
+    if (!product) return res.status(404).json({ success: false, message: "Product not found" });
+
+    try {
+        const userRef = db.collection('users').doc(userId);
+        
+        const result = await db.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            if (!userDoc.exists) throw "User not found";
+
+            const userData = userDoc.data();
+            const currentBalance = userData.balance || 0;
+            const inventory = userData.inventory || [];
+            
+            // Check Purchase Limit
+            const purchaseCount = inventory.filter(item => item.id === productId).length;
+            if (purchaseCount >= product.limit) {
+                throw `Purchase limit reached for ${product.title}`;
+            }
+
+            // Check Balance
+            if (currentBalance < product.price) {
+                throw "Insufficient balance";
+            }
+
+            // Perform Transaction
+            const newBalance = currentBalance - product.price;
+            const newItem = {
+                id: productId,
+                title: product.title,
+                purchasedAt: new Date().toISOString()
+            };
+
+            t.update(userRef, {
+                balance: newBalance,
+                inventory: admin.firestore.FieldValue.arrayUnion(newItem)
+            });
+
+            return { newBalance };
+        });
+
+        res.json({ success: true, balance: result.newBalance });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
