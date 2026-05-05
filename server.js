@@ -399,6 +399,90 @@ app.post('/api/gift/send', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// --- LUCKY DRAW SPIN ENDPOINT ---
+app.post('/api/lucky-draw/spin', async (req, res) => {
+    try {
+        const { uid } = req.body;
+        if (!uid) return res.status(400).json({ error: "User ID required" });
+
+        const userRef = db.collection('users').doc(uid);
+
+        const result = await db.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            if (!userDoc.exists) throw new Error("User not found");
+
+            const data = userDoc.data();
+            const currentCoupons = data.coupons || 0;
+            const currentBalance = data.balance || 0;
+            const totalSpins = data.totalSpins || 0;
+
+            if (currentCoupons < 1) throw new Error("Insufficient coupons");
+
+            // Define Prizes (Keep identical to frontend for visual alignment)
+            const prizePool = [
+                { name: '10 ETB', value: 10, tier: 'common', prob: 0.4 },
+                { name: '20 ETB', value: 20, tier: 'common', prob: 0.3 },
+                { name: '50 ETB', value: 50, tier: 'common', prob: 0.2 },
+                { name: 'Power Bank', value: 'Power Bank', tier: 'rare', prob: 0.05 },
+                { name: 'Smart Watch', value: 'Smart Watch', tier: 'epic', prob: 0.04 },
+                { name: 'Smartphone', value: 'Smartphone', tier: 'legendary', prob: 0.01 }
+            ];
+
+            // Select Prize
+            let random = Math.random();
+            let cumulative = 0;
+            let selectedPrize = prizePool[0];
+
+            for (const p of prizePool) {
+                cumulative += p.prob;
+                if (random < cumulative) {
+                    selectedPrize = p;
+                    break;
+                }
+            }
+
+            // Update User Data
+            const updates = {
+                coupons: currentCoupons - 1,
+                totalSpins: totalSpins + 1,
+                lastSpinAt: admin.firestore.FieldValue.serverTimestamp()
+            };
+
+            if (selectedPrize.name.includes('ETB')) {
+                updates.balance = currentBalance + selectedPrize.value;
+            } else {
+                const inventory = data.inventory || [];
+                inventory.push({
+                    name: selectedPrize.name,
+                    tier: selectedPrize.tier,
+                    wonAt: new Date().toISOString(),
+                    claimed: false
+                });
+                updates.inventory = inventory;
+            }
+
+            t.update(userRef, updates);
+
+            // Log spin history
+            const spinRef = db.collection('spins').doc();
+            t.set(spinRef, {
+                userId: uid,
+                userPhone: data.phoneNumber || 'Unknown',
+                prize: selectedPrize.name,
+                prizeTier: selectedPrize.tier,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            return { selectedPrize, newCoupons: updates.coupons, newSpins: updates.totalSpins };
+        });
+
+        res.status(200).json({ success: true, ...result });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
