@@ -243,7 +243,50 @@ app.get('/api/news', async (req, res) => {
         res.status(500).json({ error: "Failed to fetch news" });
     }
 });
+// ==========================================
+// 4.6. UPDATE BANK DETAILS ROUTE
+// ==========================================
+app.post('/api/user/update-bank', async (req, res) => {
+    try {
+        const { uid, bankAccount } = req.body;
 
+        // Validation
+        if (!uid) {
+            return res.status(400).json({ error: "Missing user UID." });
+        }
+        if (!bankAccount || !bankAccount.bankName || !bankAccount.accountNumber || !bankAccount.accountHolder) {
+            return res.status(400).json({ error: "Missing required bank details." });
+        }
+
+        const userRef = db.collection('users').doc(uid);
+        const userDoc = await userRef.get();
+
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: "User profile not found." });
+        }
+
+        // Update nested bank account information securely on the server
+        await userRef.update({
+            bankAccount: {
+                bankName: bankAccount.bankName,
+                accountNumber: bankAccount.accountNumber,
+                accountHolder: bankAccount.accountHolder,
+                isVerified: false, // Security check: resetting verification status on edit
+                updatedAt: new Date().toISOString()
+            }
+        });
+
+        console.log(`🏦 Bank details updated successfully for UID: ${uid}`);
+        return res.status(200).json({ 
+            success: true, 
+            message: "Bank details saved successfully. Verification is pending." 
+        });
+
+    } catch (error) {
+        console.error("❌ Error updating bank details on server:", error);
+        return res.status(500).json({ error: "Internal server error. Failed to save bank details." });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
