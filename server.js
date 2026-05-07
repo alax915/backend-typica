@@ -362,6 +362,69 @@ app.post('/api/withdraw/request', async (req, res) => {
         res.status(400).json({ error: typeof error === 'string' ? error : "Transaction failed" });
     }
 });
+// --- NEW ROUTE: SEND CASH GIFT (P2P TRANSFER) ---
+app.post('/api/gift/send', async (req, res) => {
+    const { senderUid, recipientPhone, amount, bonus, message } = req.body;
+
+    if (!senderUid || !recipientPhone || !amount) {
+        return res.status(400).json({ error: "Missing transfer details" });
+    }
+
+    try {
+        const totalDeduction = parseFloat(amount) + (parseFloat(bonus) || 0);
+        const senderRef = db.collection('users').doc(senderUid);
+        
+        // Find recipient by phone number
+        const recipientQuery = await db.collection('users').where('phoneNumber', '==', recipientPhone).limit(1).get();
+        
+        if (recipientQuery.empty) {
+            return res.status(404).json({ error: "Recipient phone number not found in system" });
+        }
+
+        const recipientDoc = recipientQuery.docs[0];
+        const recipientRef = recipientDoc.ref;
+
+        if (recipientDoc.id === senderUid) {
+            return res.status(400).json({ error: "You cannot send a gift to yourself" });
+        }
+
+        await db.runTransaction(async (t) => {
+            const senderDoc = await t.get(senderRef);
+            if (senderDoc.data().balance < totalDeduction) {
+                throw "Insufficient balance";
+            }
+
+            // 1. Deduct from sender
+            t.update(senderRef, {
+                balance: admin.firestore.FieldValue.increment(-totalDeduction)
+            });
+
+            // 2. Add to recipient
+            t.update(recipientRef, {
+                balance: admin.firestore.FieldValue.increment(parseFloat(amount))
+            });
+
+            // 3. Log the transaction
+            const logRef = db.collection('transactions').doc();
+            t.set(logRef, {
+                type: 'gift',
+                senderUid,
+                senderPhone: senderDoc.data().phoneNumber,
+                recipientUid: recipientDoc.id,
+                recipientPhone,
+                amount: parseFloat(amount),
+                bonus: parseFloat(bonus) || 0,
+                message: message || "",
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        res.status(200).json({ success: true, message: "Gift sent successfully" });
+    } catch (error) {
+        console.error("Gift Transaction Error:", error);
+        res.status(400).json({ error: typeof error === 'string' ? error : "Transfer failed" });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
