@@ -316,6 +316,52 @@ app.post('/api/recharge/request', async (req, res) => {
         res.status(500).json({ error: "Failed to submit recharge request" });
     }
 });
+// --- NEW ROUTE: WITHDRAWAL REQUEST ---
+app.post('/api/withdraw/request', async (req, res) => {
+    try {
+        const { uid, amount, fee, netAmount, phoneNumber, bankAccount } = req.body;
+
+        if (!uid || !amount) {
+            return res.status(400).json({ error: "Missing required withdrawal data" });
+        }
+
+        const userRef = db.collection('users').doc(uid);
+
+        // Transaction ensures data consistency
+        await db.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            if (!userDoc.exists) throw "User not found";
+
+            const currentBalance = userDoc.data().balance || 0;
+            if (currentBalance < amount) {
+                throw "Insufficient balance for this withdrawal";
+            }
+
+            // 1. Deduct balance from user
+            t.update(userRef, {
+                balance: admin.firestore.FieldValue.increment(-amount)
+            });
+
+            // 2. Create withdrawal record for admin approval
+            const withdrawRef = db.collection('withdrawals').doc();
+            t.set(withdrawRef, {
+                uid,
+                amount,
+                fee,
+                netAmount,
+                phoneNumber,
+                bankAccount,
+                status: 'pending',
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        res.status(200).json({ success: true, message: "Withdrawal submitted" });
+    } catch (error) {
+        console.error("Withdrawal Error:", error);
+        res.status(400).json({ error: typeof error === 'string' ? error : "Transaction failed" });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
