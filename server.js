@@ -484,6 +484,40 @@ app.post('/api/lucky-draw/spin', async (req, res) => {
         res.status(400).json({ success: false, error: error.toString() });
     }
 });
+// --- NEW ROUTE: EXCHANGE POINTS FOR BALANCE ---
+app.post('/api/user/exchange-points', async (req, res) => {
+    const { uid, points } = req.body;
+
+    if (!uid || !points || points <= 0) {
+        return res.status(400).json({ error: "Invalid exchange request" });
+    }
+
+    try {
+        const userRef = db.collection('users').doc(uid);
+
+        await db.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            if (!userDoc.exists) throw "User not found";
+
+            const currentPoints = userDoc.data().points || 0;
+            if (currentPoints < points) throw "Insufficient points";
+
+            // 1 point = 1 ETB
+            const amountToAdd = parseFloat(points);
+
+            t.update(userRef, {
+                points: admin.firestore.FieldValue.increment(-points),
+                balance: admin.firestore.FieldValue.increment(amountToAdd),
+                lastExchangeAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        res.status(200).json({ success: true, message: "Points exchanged successfully" });
+    } catch (error) {
+        console.error("Exchange Error:", error);
+        res.status(400).json({ error: typeof error === 'string' ? error : "Exchange failed" });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
