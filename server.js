@@ -210,6 +210,8 @@ app.get('/api/user/:uid', async (req, res) => {
             inviteCode: userData.inviteCode,
             isMasterAccount: userData.isMasterAccount,
             payPassword: userData.payPassword,
+            points: userData.points,
+            myReferralCode: userData.myReferralCode,
             uid: userData.uid
         });
 
