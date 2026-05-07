@@ -425,6 +425,65 @@ app.post('/api/gift/send', async (req, res) => {
         res.status(400).json({ error: typeof error === 'string' ? error : "Transfer failed" });
     }
 });
+// --- NEW ROUTE: LUCKY DRAW SPIN ---
+app.post('/api/lucky-draw/spin', async (req, res) => {
+    const { uid } = req.body;
+    const prizes = [
+        { name: '10 ETB', weight: 60, value: 10, type: 'balance' },
+        { name: '20 ETB', weight: 25, value: 20, type: 'balance' },
+        { name: '50 ETB', weight: 10, value: 50, type: 'balance' },
+        { name: 'Power Bank', weight: 3, type: 'physical' },
+        { name: 'Smart Watch', weight: 1.5, type: 'physical' },
+        { name: 'Smartphone', weight: 0.5, type: 'physical' }
+    ];
+
+    try {
+        const userRef = db.collection('users').doc(uid);
+
+        const result = await db.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            const currentCoupons = userDoc.data().coupons || 0;
+
+            if (currentCoupons < 1) throw "No coupons available";
+
+            // 1. Pick a prize based on weight
+            let random = Math.random() * 100;
+            let cumulative = 0;
+            let selectedPrize = prizes[0];
+
+            for (const p of prizes) {
+                cumulative += p.weight;
+                if (random <= cumulative) {
+                    selectedPrize = p;
+                    break;
+                }
+            }
+
+            // 2. Update user data
+            let updateData = {
+                coupons: admin.firestore.FieldValue.increment(-1),
+                totalSpins: admin.firestore.FieldValue.increment(1)
+            };
+
+            // If cash prize, add to balance
+            if (selectedPrize.type === 'balance') {
+                updateData.balance = admin.firestore.FieldValue.increment(selectedPrize.value);
+            }
+
+            t.update(userRef, updateData);
+            
+            return {
+                selectedPrize,
+                newCoupons: currentCoupons - 1,
+                newSpins: (userDoc.data().totalSpins || 0) + 1
+            };
+        });
+
+        res.status(200).json({ success: true, ...result });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.toString() });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
