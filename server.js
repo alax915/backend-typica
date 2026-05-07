@@ -287,6 +287,35 @@ app.post('/api/user/update-bank', async (req, res) => {
         return res.status(500).json({ error: "Internal server error. Failed to save bank details." });
     }
 });
+// --- NEW ROUTE: RECHARGE REQUEST ---
+app.post('/api/recharge/request', async (req, res) => {
+    try {
+        const { uid, amount, method, phoneNumber } = req.body;
+
+        if (!uid || !amount || !method) {
+            return res.status(400).json({ error: "Missing required recharge data" });
+        }
+
+        // Create a pending recharge document for admin approval
+        const rechargeRef = db.collection('recharges').doc();
+        await rechargeRef.set({
+            uid: uid,
+            amount: parseFloat(amount),
+            method: method,
+            phoneNumber: phoneNumber || "Unknown",
+            status: 'pending', // Requires manual admin approval to update balance
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            message: "Recharge request submitted for approval" 
+        });
+    } catch (error) {
+        console.error("Recharge Route Error:", error);
+        res.status(500).json({ error: "Failed to submit recharge request" });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
