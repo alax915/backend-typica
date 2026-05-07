@@ -518,6 +518,41 @@ app.post('/api/user/exchange-points', async (req, res) => {
         res.status(400).json({ error: typeof error === 'string' ? error : "Exchange failed" });
     }
 });
+// --- NEW ROUTE: DAILY CHECK-IN ---
+app.post('/api/user/checkin', async (req, res) => {
+    const { uid } = req.body;
+    const todayStr = new Date().toDateString();
+
+    try {
+        const userRef = db.collection('users').doc(uid);
+
+        const result = await db.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            if (!userDoc.exists) throw "User not found";
+
+            const data = userDoc.data();
+            const checkins = data.dailyCheckins || [];
+
+            // Check if user already checked in today
+            const alreadyDone = checkins.some(date => new Date(date).toDateString() === todayStr);
+            if (alreadyDone) throw "Already checked in today";
+
+            const now = new Date().toISOString();
+            
+            t.update(userRef, {
+                points: admin.firestore.FieldValue.increment(1),
+                dailyCheckins: admin.firestore.FieldValue.arrayUnion(now),
+                lastCheckin: now
+            });
+
+            return { success: true };
+        });
+
+        res.status(200).json(result);
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.toString() });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
