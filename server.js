@@ -555,6 +555,35 @@ app.post('/api/user/checkin', async (req, res) => {
         res.status(400).json({ success: false, error: error.toString() });
     }
 });
+
+// --- GET USER ORDERS (My Products) ---
+app.get('/api/user/orders/:uid', async (req, res) => {
+    const { uid } = req.params;
+
+    try {
+        // Query the 'orders' collection for docs where userId matches the UID
+        const ordersSnapshot = await db.collection('orders')
+            .where('userId', '==', uid)
+            .get();
+
+        if (ordersSnapshot.empty) {
+            return res.status(200).json([]); // Return empty array if no orders
+        }
+
+        const orders = [];
+        ordersSnapshot.forEach(doc => {
+            orders.push({ id: doc.id, ...doc.data() });
+        });
+
+        // Sort by purchase date (newest first) if timestamp exists
+        orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        res.status(200).json(orders);
+    } catch (error) {
+        console.error("Error fetching orders:", error);
+        res.status(500).json({ error: "Failed to load orders" });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
