@@ -754,6 +754,20 @@ app.post('/api/user/update-bank', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// Update User Address
+app.post('/api/user/update-address', async (req, res) => {
+    try {
+        const { uid, address } = req.body;
+        
+        await db.collection('users').doc(uid).set({
+            address
+        }, { merge: true });
+        
+        res.json({ success: true, message: "Address updated successfully" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
