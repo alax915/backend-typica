@@ -372,10 +372,19 @@ app.post('/api/withdraw/request', async (req, res) => {
 app.get('/api/user/withdrawals/:uid', async (req, res) => {
     try {
         const { uid } = req.params;
-        const snapshot = await db.collection('withdrawals').where('uid', '==', uid).orderBy('timestamp', 'desc').get();
+        let snapshot = await db.collection('withdrawals').where('uid', '==', uid).get();
+        if (snapshot.empty) {
+            snapshot = await db.collection('withdrawals').where('userId', '==', uid).get();
+        }
         const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        withdrawals.sort((a, b) => {
+            const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return tb - ta;
+        });
         res.json(withdrawals);
     } catch (error) {
+        console.error('Withdrawals route error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -710,14 +719,19 @@ app.post('/api/user/contract/sign', async (req, res) => {
 app.get('/api/user/spins/:uid', async (req, res) => {
     try {
         const { uid } = req.params;
-        const snapshot = await db.collection('spins')
-            .where('userId', '==', uid)
-            .orderBy('timestamp', 'desc')
-            .get();
-            
+        let snapshot = await db.collection('spins').where('userId', '==', uid).get();
+        if (snapshot.empty) {
+            snapshot = await db.collection('spins').where('uid', '==', uid).get();
+        }
         const spins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        spins.sort((a, b) => {
+            const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return tb - ta;
+        });
         res.json(spins);
     } catch (error) {
+        console.error('Spin history route error:', error);
         res.status(500).json({ error: error.message });
     }
 });
