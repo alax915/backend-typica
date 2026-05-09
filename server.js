@@ -672,6 +672,24 @@ app.get('/api/user/transactions/:uid', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+app.post('/api/user/contract/sign', async (req, res) => {
+    try {
+        const { uid, signatureImage, contractText, signedAt } = req.body;
+        
+        // Save to your database (e.g., Firestore via Admin SDK)
+        await db.collection('contracts').doc(uid).set({
+            contractText,
+            signatureImage,
+            signed: true,
+            signedAt: signedAt || new Date().toISOString()
+        }, { merge: true });
+        
+        res.json({ success: true, message: "Contract signed successfully" });
+    } catch (error) {
+        console.error("Error saving signature:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
