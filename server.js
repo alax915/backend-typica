@@ -30,6 +30,9 @@ app.use(cors({
     'http://localhost:5500', 
     'http://127.0.0.1:5500', 
     'http://192.168.1.101:5500',
+    'http://192.168.1.102:5500',
+    'http://192.168.1.103:5500',
+    'http://192.168.1.104:5500',
     process.env.FRONTEND_URL // Add your live website URL here later via Render dashboard
   ].filter(Boolean) // Removes undefined values if FRONTEND_URL isn't set yet
 }));
