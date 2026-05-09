@@ -367,6 +367,19 @@ app.post('/api/withdraw/request', async (req, res) => {
         res.status(400).json({ error: typeof error === 'string' ? error : "Transaction failed" });
     }
 });
+
+// --- NEW ROUTE: GET USER WITHDRAWALS ---
+app.get('/api/user/withdrawals/:uid', async (req, res) => {
+    try {
+        const { uid } = req.params;
+        const snapshot = await db.collection('withdrawals').where('uid', '==', uid).orderBy('timestamp', 'desc').get();
+        const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.json(withdrawals);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --- NEW ROUTE: SEND CASH GIFT (P2P TRANSFER) ---
 app.post('/api/gift/send', async (req, res) => {
     const { senderUid, recipientPhone, amount, bonus, message } = req.body;
