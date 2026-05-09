@@ -738,6 +738,22 @@ app.get('/api/user/orders/:uid', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// Update User Bank Account Info
+app.post('/api/user/update-bank', async (req, res) => {
+    try {
+        const { uid, bankAccount, phoneNumber, phoneDigits } = req.body;
+        
+        await db.collection('users').doc(uid).set({
+            bankAccount,
+            phoneNumber,
+            phoneDigits
+        }, { merge: true });
+        
+        res.json({ success: true, message: "Bank info updated" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
