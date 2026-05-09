@@ -793,6 +793,38 @@ app.post('/api/user/change-pay-password', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// Change Login Password (Auth)
+app.post('/api/user/change-login-password', async (req, res) => {
+    try {
+        const { uid, oldPassword, newPassword } = req.body;
+
+        // 1. Verify the old password matches what we have in Firestore
+        // Note: For login password, you should ideally store it hashed or 
+        // check against the user document if you store it there for verification.
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (!userDoc.exists) return res.status(404).json({ error: "User not found" });
+
+        const userData = userDoc.data();
+        if (userData.password !== oldPassword) {
+            return res.status(400).json({ error: "Old password is incorrect" });
+        }
+
+        // 2. Update the Firebase Auth system password
+        await admin.auth().updateUser(uid, {
+            password: newPassword
+        });
+
+        // 3. Update the password in Firestore user record so they stay in sync
+        await db.collection('users').doc(uid).update({
+            password: newPassword
+        });
+
+        res.json({ success: true, message: "Login password updated" });
+    } catch (error) {
+        console.error("Error updating login password:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
