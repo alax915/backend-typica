@@ -205,6 +205,7 @@ app.get('/api/user/:uid', async (req, res) => {
             accountStatus: userData.accountStatus,
             accountType: userData.accountType,
             bankAccount: userData.bankAccount,
+            address: userData.address || null,
             checkinHistory: userData.checkinHistory,
             coupons: userData.coupons,
             createdAt: userData.createdAt,
@@ -673,6 +674,39 @@ app.get('/api/user/transactions/:uid', async (req, res) => {
         res.json(transactions);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/user/contract/:uid', async (req, res) => {
+    try {
+        const { uid } = req.params;
+        if (!uid) {
+            return res.status(400).json({ error: 'Missing UID parameter' });
+        }
+
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const userData = userDoc.data();
+        const userName = (userData.address && typeof userData.address.name === 'string')
+            ? userData.address.name
+            : userData.displayName || userData.phoneDigits || userData.phoneNumber || 'Unknown';
+
+        const contractDoc = await db.collection('contracts').doc(uid).get();
+        const contractData = contractDoc.exists ? contractDoc.data() : {};
+
+        res.json({
+            userName,
+            contractText: contractData.contractText || null,
+            signed: contractData.signed || false,
+            signatureImage: contractData.signatureImage || null,
+            signedAt: contractData.signedAt || null
+        });
+    } catch (error) {
+        console.error('Contract fetch error:', error);
+        res.status(500).json({ error: 'Failed to load contract data' });
     }
 });
 app.post('/api/user/contract/sign', async (req, res) => {
