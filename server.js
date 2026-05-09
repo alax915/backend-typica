@@ -555,36 +555,20 @@ app.post('/api/user/checkin', async (req, res) => {
         res.status(400).json({ success: false, error: error.toString() });
     }
 });
-
-// --- GET USER ORDERS (My Products) ---
 // --- GET USER ORDERS (My Products) ---
 app.get('/api/user/orders/:uid', async (req, res) => {
     const { uid } = req.params;
-
     try {
-        // Query the 'orders' collection for docs where userId matches the UID
         const ordersSnapshot = await db.collection('orders')
-            .where('userId', '==', uid)
+            .where('userId', '==', uid) // Make sure your DB field is 'userId'
             .get();
-
-        if (ordersSnapshot.empty) {
-            return res.status(200).json([]); // Return empty array if no orders
-        }
 
         const orders = [];
         ordersSnapshot.forEach(doc => {
-            const data = doc.data();
-            orders.push({ 
-                id: doc.id, 
-                ...data,
-                // Ensure timestamp is converted if it exists
-                timestamp: data.timestamp ? data.timestamp.toDate() : null 
-            });
+            orders.push({ id: doc.id, ...doc.data() });
         });
-
         res.status(200).json(orders);
     } catch (error) {
-        console.error("Error fetching orders:", error);
         res.status(500).json({ error: "Failed to load orders" });
     }
 });
