@@ -1057,51 +1057,39 @@ const PRODUCT_LIMITS = {
 };
 app.post('/api/purchase', async (req, res) => {
     const { uid, productId } = req.body;
+    console.log(`🛒 Processing purchase for UID: ${uid}, Product: ${productId}`);
 
     try {
         const product = PRODUCTS[productId];
-        const limit = PRODUCT_LIMITS[productId];
-
-        if (!product) {
-            return res.status(404).json({ error: "Product not found" });
-        }
+        if (!product) throw new Error("Product not found in server database");
 
         const userRef = db.collection('users').doc(uid);
-        const ordersRef = db.collection('orders');
+        const ordersRef = db.collection('products'); // This is your 'orders' collection
 
-        // Execute the transaction on the server
         const transactionResult = await db.runTransaction(async (t) => {
             const userDoc = await t.get(userRef);
-            if (!userDoc.exists) throw new Error("User record not found");
+            
+            if (!userDoc.exists) {
+                throw new Error("User does not exist in Firestore. Check if UID matches.");
+            }
 
             const userData = userDoc.data();
             const currentBalance = userData.balance || 0;
 
-            // 1. Check Balance
             if (currentBalance < product.price) {
-                throw new Error("Insufficient balance to complete purchase");
+                throw new Error(`Insufficient balance. Need ${product.price}, have ${currentBalance}`);
             }
 
-            // 2. Check Purchase Limits
-            const previousOrders = await ordersRef
-                .where('userId', '==', uid)
-                .where('productId', '==', productId)
-                .get();
-            
-            if (previousOrders.size >= limit) {
-                throw new Error(`Purchase limit reached. You can only buy ${limit} of this item.`);
-            }
-
-            // 3. Deduct Balance
-            t.update(userRef, { 
-                balance: currentBalance - product.price 
+            // 1. Deduct Balance
+            t.update(userRef, {
+                balance: currentBalance - product.price
             });
 
-            // 4. Create the Order
+            // 2. Create Order
             const newOrderRef = ordersRef.doc();
             t.set(newOrderRef, {
                 userId: uid,
-                userPhone: userData.phoneNumber || '',
+                userPhone: userData.phoneNumber || 'N/A',
                 productId: productId,
                 productTitle: product.title,
                 amountPaid: product.price,
@@ -1110,13 +1098,16 @@ app.post('/api/purchase', async (req, res) => {
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            return { success: true };
+            return { success: true, newBalance: currentBalance - product.price };
         });
 
+        console.log(`✅ Database Updated for ${uid}`);
         res.json(transactionResult);
+
     } catch (error) {
-        console.error("Transaction failed:", error.message);
-        res.status(400).json({ error: error.message });
+        // This log will now show up in your Render Logs!
+        console.error("❌ TRANSACTION ERROR:", error.message); 
+        res.status(400).json({ success: false, error: error.message });
     }
 });
 app.get('/api/products/:id', (req, res) => {
