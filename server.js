@@ -1119,6 +1119,23 @@ app.post('/api/purchase', async (req, res) => {
         res.status(400).json({ error: error.message });
     }
 });
+app.get('/api/products/:id', (req, res) => {
+    const productId = req.params.id;
+    const product = PRODUCTS[productId];
+
+    if (product) {
+        // Find the full data for each related product ID
+        const relatedData = (product.related || []).map(id => {
+            const p = PRODUCTS[id];
+            return p ? { id: p.id, title: p.title, price: p.price, images: p.images } : null;
+        }).filter(item => item !== null);
+
+        // Send the product PLUS the detailed related products
+        res.json({ ...product, relatedData });
+    } else {
+        res.status(404).json({ error: "Product not found" });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
