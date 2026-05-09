@@ -591,6 +591,68 @@ app.get('/api/user/orders/:uid', async (req, res) => {
         res.status(500).json({ error: "Failed to load products" });
     }
 });
+// --- 5. RECEIVE DAILY INCOME ROUTE ---
+app.post('/api/products/receive', async (req, res) => {
+    const { uid, productId } = req.body;
+
+    if (!uid || !productId) {
+        return res.status(400).json({ error: "Missing required information" });
+    }
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const productRef = db.collection('products').doc(productId);
+            const userRef = db.collection('users').doc(uid);
+
+            const productDoc = await transaction.get(productRef);
+            const userDoc = await transaction.get(userRef);
+
+            if (!productDoc.exists) throw new Error("Product record not found");
+            if (!userDoc.exists) throw new Error("User record not found");
+
+            const product = productDoc.data();
+            const userData = userDoc.data();
+
+            // Security: Ensure product belongs to the user
+            if (product.userPhone !== userData.phoneNumber) {
+                throw new Error("Unauthorized: Product ownership mismatch");
+            }
+
+            // Validation: Check days remaining
+            const days = parseInt(product.days || 0);
+            if (days <= 0) throw new Error("This product has expired");
+
+            // Validation: Check if already received today
+            const today = new Date().toISOString().split('T')[0];
+            if (product.lastReceive === today) {
+                throw new Error("You have already received today's income");
+            }
+
+            const dailyIncome = parseFloat(product.dailyIncome || product.dailyProfit || 0);
+
+            // UPDATES
+            transaction.update(productRef, {
+                days: days - 1,
+                lastReceive: today,
+                totalEarnings: (parseFloat(product.totalEarnings || 0) + dailyIncome),
+                currentIncome: (parseFloat(product.currentIncome || 0) + dailyIncome)
+            });
+
+            transaction.update(userRef, {
+                balance: (parseFloat(userData.balance || 0) + dailyIncome)
+            });
+
+            res.json({ 
+                success: true, 
+                dailyIncome: dailyIncome,
+                message: "Income successfully claimed" 
+            });
+        });
+    } catch (error) {
+        console.error("Receive Error:", error.message);
+        res.status(400).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
