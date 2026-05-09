@@ -690,6 +690,54 @@ app.post('/api/user/contract/sign', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// 1. Fetch Lucky Spin History (For Coffee tab)
+app.get('/api/user/spins/:uid', async (req, res) => {
+    try {
+        const { uid } = req.params;
+        const snapshot = await db.collection('spins')
+            .where('userId', '==', uid)
+            .orderBy('timestamp', 'desc')
+            .get();
+            
+        const spins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.json(spins);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 2. Fetch User Profile (For Daily Check-ins / Integral tab)
+app.get('/api/user/profile/:uid', async (req, res) => {
+    try {
+        const { uid } = req.params;
+        const doc = await db.collection('users').doc(uid).get();
+        if (!doc.exists) return res.status(404).json({ error: "User not found" });
+        res.json(doc.data());
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 3. Fetch Product Orders (For Product Income / Balance tab)
+app.get('/api/user/orders/:uid', async (req, res) => {
+    try {
+        const { uid } = req.params;
+        // First get the user's phone number to find their orders
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (!userDoc.exists) return res.status(404).json({ error: "User not found" });
+        
+        const phoneNumber = userDoc.data().phoneNumber;
+        
+        const snapshot = await db.collection('products')
+            .where('userPhone', '==', phoneNumber)
+            .get();
+            
+        const products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.json(products);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
