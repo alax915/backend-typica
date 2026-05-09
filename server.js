@@ -768,6 +768,31 @@ app.post('/api/user/update-address', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// Change Pay Password (with old password verification)
+app.post('/api/user/change-pay-password', async (req, res) => {
+    try {
+        const { uid, oldPassword, newPassword } = req.body;
+        
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (!userDoc.exists) return res.status(404).json({ error: "User not found" });
+
+        const userData = userDoc.data();
+
+        // Verify old password
+        if (userData.payPassword !== oldPassword) {
+            return res.status(400).json({ error: "Old password is incorrect" });
+        }
+
+        // Update to new password
+        await db.collection('users').doc(uid).update({
+            payPassword: newPassword
+        });
+
+        res.json({ success: true, message: "Pay password updated" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
