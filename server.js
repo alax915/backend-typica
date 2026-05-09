@@ -556,20 +556,39 @@ app.post('/api/user/checkin', async (req, res) => {
     }
 });
 // --- GET USER ORDERS (My Products) ---
+// --- GET USER ORDERS (Fixed to match Phone Number logic) ---
 app.get('/api/user/orders/:uid', async (req, res) => {
     const { uid } = req.params;
+
     try {
-        const ordersSnapshot = await db.collection('products')
-            .where('userPhone', '==', uid) // Make sure your DB field is 'userId'
+        // 1. First, find the user document to get their phone number
+        const userDoc = await db.collection('users').doc(uid).get();
+        
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const userData = userDoc.data();
+        const userPhone = userData.phoneNumber; // Get the phone number from the user doc
+
+        // 2. Now search the 'products' collection using that phone number
+        const productsSnapshot = await db.collection('products')
+            .where('userPhone', '==', userPhone) 
             .get();
 
+        if (productsSnapshot.empty) {
+            return res.status(200).json([]); 
+        }
+
         const orders = [];
-        ordersSnapshot.forEach(doc => {
+        productsSnapshot.forEach(doc => {
             orders.push({ id: doc.id, ...doc.data() });
         });
+
         res.status(200).json(orders);
     } catch (error) {
-        res.status(500).json({ error: "Failed to load orders" });
+        console.error("Error fetching orders:", error);
+        res.status(500).json({ error: "Failed to load products" });
     }
 });
 // 5. START SERVER
