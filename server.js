@@ -1165,6 +1165,56 @@ app.get('/api/products/:id', (req, res) => {
         res.status(404).json({ error: "Product not found" });
     }
 });
+// GET TEAM STATS AND MEMBERS
+app.get('/api/team-stats/:uid', async (req, res) => {
+    try {
+        const uid = req.params.uid;
+        
+        // 1. Get the current user's referral code
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: "User not found" });
+        }
+        
+        const userData = userDoc.data();
+        const myCode = userData.myReferralCode || 'N/A';
+
+        // 2. Query for all users who used this code as their inviteCode
+        const referralsSnapshot = await db.collection('users')
+            .where('inviteCode', '==', myCode)
+            .get();
+
+        let teamRevenueTotal = 0;
+        const members = [];
+
+        referralsSnapshot.forEach(doc => {
+            const data = doc.data();
+            const balance = data.balance || 0;
+            teamRevenueTotal += balance;
+
+            // Secure the phone number: only show last 4 digits
+            const rawPhone = data.phoneNumber || data.phone || 'Unknown';
+            const maskedPhone = rawPhone.length > 4 ? `****${rawPhone.slice(-4)}` : '****';
+
+            members.push({
+                maskedPhone: maskedPhone,
+                balance: balance
+            });
+        });
+
+        // 3. Return consolidated data
+        res.json({
+            myReferralCode: myCode,
+            referralCount: referralsSnapshot.size,
+            teamRevenueTotal: teamRevenueTotal,
+            members: members
+        });
+
+    } catch (error) {
+        console.error("❌ Team API Error:", error.message);
+        res.status(500).json({ error: "Failed to fetch team data" });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
