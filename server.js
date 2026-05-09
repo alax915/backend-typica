@@ -653,6 +653,25 @@ app.post('/api/products/receive', async (req, res) => {
         res.status(400).json({ error: error.message });
     }
 });
+app.get('/api/user/transactions/:uid', async (req, res) => {
+    try {
+        const { uid } = req.params;
+        const { type } = req.query; // e.g., ?type=withdraw
+        
+        let query = db.collection('transactions').where('userId', '==', uid);
+        
+        if (type) {
+            query = query.where('type', '==', type);
+        }
+
+        const snapshot = await query.orderBy('timestamp', 'desc').get();
+        const transactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        res.json(transactions);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // 5. START SERVER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
