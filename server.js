@@ -559,7 +559,7 @@ app.post('/api/user/checkin', async (req, res) => {
 app.get('/api/user/orders/:uid', async (req, res) => {
     const { uid } = req.params;
     try {
-        const ordersSnapshot = await db.collection('orders')
+        const ordersSnapshot = await db.collection('products')
             .where('userPhone', '==', uid) // Make sure your DB field is 'userId'
             .get();
 
