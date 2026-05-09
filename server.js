@@ -557,6 +557,7 @@ app.post('/api/user/checkin', async (req, res) => {
 });
 
 // --- GET USER ORDERS (My Products) ---
+// --- GET USER ORDERS (My Products) ---
 app.get('/api/user/orders/:uid', async (req, res) => {
     const { uid } = req.params;
 
@@ -572,11 +573,14 @@ app.get('/api/user/orders/:uid', async (req, res) => {
 
         const orders = [];
         ordersSnapshot.forEach(doc => {
-            orders.push({ id: doc.id, ...doc.data() });
+            const data = doc.data();
+            orders.push({ 
+                id: doc.id, 
+                ...data,
+                // Ensure timestamp is converted if it exists
+                timestamp: data.timestamp ? data.timestamp.toDate() : null 
+            });
         });
-
-        // Sort by purchase date (newest first) if timestamp exists
-        orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
         res.status(200).json(orders);
     } catch (error) {
