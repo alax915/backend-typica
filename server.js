@@ -24,6 +24,15 @@ try {
 
 const db = admin.firestore();
 
+function getVipLevel(referralCount = 0) {
+    if (referralCount >= 70) return 'VIP5';
+    if (referralCount >= 50) return 'VIP4';
+    if (referralCount >= 20) return 'VIP3';
+    if (referralCount >= 10) return 'VIP2';
+    if (referralCount >= 5) return 'VIP1';
+    return 'VIP0';
+}
+
 // 3. MIDDLEWARE
 app.use(cors({
   origin: [
@@ -55,8 +64,8 @@ app.post('/api/register', async (req, res) => {
         const fullPhoneNumber = `+251${phoneDigits}`;
 
         const usersRef = db.collection('users');
-        const snapshot = await usersRef.count().get();
-        const isFirstUser = snapshot.data().count === 0;
+        const snapshot = await usersRef.limit(1).get();
+        const isFirstUser = snapshot.empty;
 
         let referrerDocId = null;
         if (!isFirstUser) {
@@ -92,6 +101,8 @@ app.post('/api/register', async (req, res) => {
             accountType: isFirstUser ? 'master' : 'regular',
             referredBy: isFirstUser ? null : inviteCode,
             totalReferrals: 0,
+            referralEarnings: 0,
+            accountLevel: getVipLevel(0),
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             accountStatus: 'active'
         };
@@ -99,8 +110,12 @@ app.post('/api/register', async (req, res) => {
         await usersRef.doc(userRecord.uid).set(userData);
 
         if (referrerDocId) {
+            const referrerDoc = await usersRef.doc(referrerDocId).get();
+            const referrerData = referrerDoc.data() || {};
+            const newReferralCount = (referrerData.totalReferrals || 0) + 1;
             await usersRef.doc(referrerDocId).update({
-                totalReferrals: admin.firestore.FieldValue.increment(1)
+                totalReferrals: admin.firestore.FieldValue.increment(1),
+                accountLevel: getVipLevel(newReferralCount)
             });
         }
 
@@ -195,14 +210,22 @@ app.get('/api/user/:uid', async (req, res) => {
         const userData = userDoc.data();
 
         // Return only the necessary info to the home page
+        const referralCount = userData.totalReferrals || 0;
+        const vipLevel = userData.accountLevel || getVipLevel(referralCount);
+
+        // Optionally save a normalized accountLevel back to the user document
+        if (!userData.accountLevel || userData.accountLevel !== vipLevel) {
+            await db.collection('users').doc(uid).update({ accountLevel: vipLevel });
+        }
+
         res.status(200).json({
             phoneNumber: userData.phoneNumber,
             balance: userData.balance,
             myReferralCode: userData.myReferralCode,
-            totalReferrals: userData.totalReferrals,
+            totalReferrals: referralCount,
+            vipLevel: vipLevel,
             accountStatus: userData.accountStatus,
-            accountLevel: userData.accountLevel,
-            accountStatus: userData.accountStatus,
+            accountLevel: vipLevel,
             accountType: userData.accountType,
             bankAccount: userData.bankAccount,
             checkinHistory: userData.checkinHistory,
@@ -214,6 +237,7 @@ app.get('/api/user/:uid', async (req, res) => {
             isMasterAccount: userData.isMasterAccount,
             payPassword: userData.payPassword,
             points: userData.points || 0,
+            referralEarnings: userData.referralEarnings || 0,
             myReferralCode: userData.myReferralCode,
             uid: userData.uid
         });
@@ -689,6 +713,38 @@ app.post('/api/products/receive', async (req, res) => {
                 balance: (parseFloat(userData.balance || 0) + dailyIncome)
             });
 
+            // Referral bonus: 1% of the daily income goes to the referrer
+            if (userData.referredBy) {
+                const referrerSnapshot = await db.collection('users')
+                    .where('myReferralCode', '==', userData.referredBy)
+                    .limit(1)
+                    .get();
+
+                if (!referrerSnapshot.empty) {
+                    const referrerDoc = referrerSnapshot.docs[0];
+                    const referrerRef = referrerDoc.ref;
+                    const referralBonus = parseFloat((dailyIncome * 0.01).toFixed(2));
+
+                    transaction.update(referrerRef, {
+                        balance: admin.firestore.FieldValue.increment(referralBonus),
+                        referralEarnings: admin.firestore.FieldValue.increment(referralBonus)
+                    });
+
+                    const referralTxRef = db.collection('transactions').doc();
+                    transaction.set(referralTxRef, {
+                        userId: referrerDoc.id,
+                        type: 'referral_daily_bonus',
+                        amount: referralBonus,
+                        description: `1% referral bonus from ${userData.phoneNumber}'s daily income`,
+                        source: 'referral',
+                        fromUid: uid,
+                        fromPhone: userData.phoneNumber,
+                        productId: productId,
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            }
+
             res.json({ 
                 success: true, 
                 dailyIncome: dailyIncome,
@@ -704,17 +760,60 @@ app.get('/api/user/transactions/:uid', async (req, res) => {
     try {
         const { uid } = req.params;
         const { type } = req.query; // e.g., ?type=withdraw
-        
+
         let query = db.collection('transactions').where('userId', '==', uid);
-        
         if (type) {
             query = query.where('type', '==', type);
         }
 
         const snapshot = await query.orderBy('timestamp', 'desc').get();
-        const transactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        res.json(transactions);
+        const transactions = snapshot.docs.map(doc => {
+            const record = { id: doc.id, ...doc.data() };
+            if (record.timestamp && typeof record.timestamp.toDate === 'function') {
+                record.timestamp = record.timestamp.toDate().toISOString();
+            } else if (record.timestamp && typeof record.timestamp._seconds === 'number') {
+                record.timestamp = new Date(record.timestamp._seconds * 1000 + Math.floor(record.timestamp._nanoseconds / 1e6)).toISOString();
+            }
+            return record;
+        });
+
+        let combinedRecords = [...transactions];
+        if (!type || type === 'recharge') {
+            let rechargeSnapshot = await db.collection('recharges').where('uid', '==', uid).get();
+            if (rechargeSnapshot.empty) {
+                rechargeSnapshot = await db.collection('recharges').where('userId', '==', uid).get();
+            }
+            const rechargeRecords = rechargeSnapshot.docs.map(doc => {
+                const data = doc.data();
+                let timestamp = data.timestamp;
+                if (timestamp && typeof timestamp.toDate === 'function') {
+                    timestamp = timestamp.toDate().toISOString();
+                } else if (timestamp && typeof timestamp._seconds === 'number') {
+                    timestamp = new Date(timestamp._seconds * 1000 + Math.floor(timestamp._nanoseconds / 1e6)).toISOString();
+                }
+
+                return {
+                    id: doc.id,
+                    userId: data.uid || data.userId || uid,
+                    type: 'recharge',
+                    amount: parseFloat(data.amount) || 0,
+                    status: data.status || 'pending',
+                    method: data.method || '',
+                    phoneNumber: data.phoneNumber || '',
+                    timestamp,
+                    description: data.method ? `Recharge via ${data.method}` : 'Recharge request'
+                };
+            });
+            combinedRecords = [...combinedRecords, ...rechargeRecords];
+        }
+
+        combinedRecords.sort((a, b) => {
+            const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return tb - ta;
+        });
+
+        res.json(combinedRecords);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1180,6 +1279,38 @@ app.post('/api/purchase', async (req, res) => {
 
             // 3. Create Order
             t.set(newOrderRef, orderData);
+
+            // 4. Referral commission: 5% of the product price for the referrer
+            if (userData.referredBy) {
+                const referrerSnapshot = await db.collection('users')
+                    .where('myReferralCode', '==', userData.referredBy)
+                    .limit(1)
+                    .get();
+
+                if (!referrerSnapshot.empty) {
+                    const referrerDoc = referrerSnapshot.docs[0];
+                    const referrerRef = referrerDoc.ref;
+                    const referralBonus = parseFloat((product.price * 0.05).toFixed(2));
+
+                    t.update(referrerRef, {
+                        balance: admin.firestore.FieldValue.increment(referralBonus),
+                        referralEarnings: admin.firestore.FieldValue.increment(referralBonus)
+                    });
+
+                    const referralTxRef = db.collection('transactions').doc();
+                    t.set(referralTxRef, {
+                        userId: referrerDoc.id,
+                        type: 'referral_purchase_bonus',
+                        amount: referralBonus,
+                        description: `5% referral bonus for friend ${userData.phoneNumber} buying ${product.title}`,
+                        source: 'referral',
+                        fromUid: uid,
+                        fromPhone: userData.phoneNumber,
+                        productId: productId,
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            }
 
             return { 
                 success: true, 
