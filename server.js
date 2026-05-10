@@ -498,6 +498,28 @@ app.post('/api/lucky-draw/spin', async (req, res) => {
             }
 
             t.update(userRef, updateData);
+
+            // 3. Log the spin result
+            const spinRef = db.collection('spins').doc();
+            t.set(spinRef, {
+                userId: uid,
+                uid: uid, // for backward compatibility
+                prize: selectedPrize.name,
+                prizeValue: selectedPrize.type === 'balance' ? selectedPrize.value : 0,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // 4. If cash prize, also log as transaction
+            if (selectedPrize.type === 'balance') {
+                const transactionRef = db.collection('transactions').doc();
+                t.set(transactionRef, {
+                    userId: uid,
+                    type: 'spin',
+                    amount: selectedPrize.value,
+                    description: `Spin prize: ${selectedPrize.name}`,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
             
             return {
                 selectedPrize,
