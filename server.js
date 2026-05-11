@@ -58,9 +58,11 @@ const loginRegisterLimiter = rateLimit({
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   handler: (req, res) => {
-    console.log('limit successful - IP:', req.ip, 'exceeded 30 requests per hour');
+    const limitMessage = `limit successful - IP: ${req.ip} exceeded 30 requests per hour`;
+    console.log(limitMessage);
     res.status(429).json({ 
-      error: 'Too many login/register attempts. Please try again later.' 
+      error: 'Too many login/register attempts. Please try again later.',
+      limitMessage: limitMessage
     });
   }
 });
