@@ -73,6 +73,7 @@ const loginRegisterLimiter = rateLimit({
 app.post('/api/register', loginRegisterLimiter, async (req, res) => {
     try {
         const { phoneDigits, password, inviteCode, payPassword } = req.body;
+        const userIPAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'Unknown';
 
         if (!phoneDigits || !password) {
             return res.status(400).json({ error: "Missing required fields" });
@@ -122,7 +123,16 @@ app.post('/api/register', loginRegisterLimiter, async (req, res) => {
             referralEarnings: 0,
             accountLevel: getVipLevel(0),
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            accountStatus: 'active'
+            accountStatus: 'active',
+            registrationIPAddress: userIPAddress,
+            blockInfo: {
+                isBlocked: false,
+                blockedBy: null,
+                blockedAt: null,
+                blockReason: null,
+                blockExpiresAt: null,
+                blockType: null
+            }
         };
 
         await usersRef.doc(userRecord.uid).set(userData);
@@ -157,6 +167,10 @@ app.get('/', (req, res) => {
 app.post('/api/login', loginRegisterLimiter, async (req, res) => {
     try {
         const { phoneDigits, password } = req.body;
+        const loginIPAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'Unknown';
+        const loginTime = new Date().toISOString();
+        const loginDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+
         const email = `251${phoneDigits}@phone.auth`;
 
         // 1. VERIFY PASSWORD via Firebase REST API
@@ -195,12 +209,82 @@ app.post('/api/login', loginRegisterLimiter, async (req, res) => {
 
         const userData = userDoc.data();
 
-        // Check if account is disabled
+        // Check if account is disabled (legacy check)
         if (userData.accountStatus === 'disabled') {
             return res.status(403).json({ error: "Account disabled. Please contact support." });
         }
 
-        // 3. SUCCESS: Password is correct and account is active
+        // 2.1 CHECK IF USER IS BLOCKED
+        if (userData.blockInfo?.isBlocked) {
+            // Check if it's a temporary block that has expired
+            if (userData.blockInfo.blockType === 'temporary' &&
+                userData.blockInfo.blockExpiresAt) {
+
+                const now = new Date();
+                const expiresAt = new Date(userData.blockInfo.blockExpiresAt);
+
+                if (now > expiresAt) {
+                    // Block has expired, auto-unblock the user
+                    await db.collection('users').doc(uid).update({
+                        'blockInfo.isBlocked': false,
+                        'blockInfo.blockExpiresAt': null,
+                        'blockInfo.blockType': null,
+                        'blockInfo.blockReason': 'Block expired automatically'
+                    });
+                    console.log(`🔓 Auto-unblocked user ${uid} - temporary block expired`);
+                } else {
+                    // Still blocked - return block information
+                    return res.status(403).json({
+                        error: "Account temporarily blocked. Contact support.",
+                        blockReason: userData.blockInfo.blockReason,
+                        blockExpiresAt: userData.blockInfo.blockExpiresAt,
+                        blockType: userData.blockInfo.blockType
+                    });
+                }
+            } else {
+                // Permanent or active block
+                return res.status(403).json({
+                    error: "Account blocked. Contact support.",
+                    blockReason: userData.blockInfo.blockReason,
+                    blockType: userData.blockInfo.blockType
+                });
+            }
+        }
+
+        // 3. LOG LOGIN ATTEMPT
+        try {
+            const loginData = {
+                ipAddress: loginIPAddress,
+                loginTime: loginTime,
+                loginDate: loginDate
+            };
+
+            const loginDocRef = db.collection('logins').doc(uid);
+            const loginDoc = await loginDocRef.get();
+
+            if (loginDoc.exists) {
+                // Update existing document by adding to loginHistory array
+                await loginDocRef.update({
+                    loginHistory: admin.firestore.FieldValue.arrayUnion(loginData),
+                    lastLogin: loginTime,
+                    lastLoginIP: loginIPAddress
+                });
+            } else {
+                // Create new document
+                await loginDocRef.set({
+                    uid: uid,
+                    loginHistory: [loginData],
+                    lastLogin: loginTime,
+                    lastLoginIP: loginIPAddress,
+                    firstLogin: loginTime
+                });
+            }
+        } catch (loginLogError) {
+            console.error("Login logging error:", loginLogError);
+            // Don't fail the login if logging fails
+        }
+
+        // 4. SUCCESS: Password is correct and account is active
         res.status(200).json({
             success: true,
             uid: uid,
@@ -680,7 +764,104 @@ app.get('/api/user/orders/:uid', async (req, res) => {
         res.status(500).json({ error: "Failed to load products" });
     }
 });
-// --- 5. RECEIVE DAILY INCOME ROUTE ---
+// --- ADMIN: BLOCK/UNBLOCK USER ---
+app.post('/api/admin/block-user', async (req, res) => {
+    try {
+        const { targetUid, blockReason, blockType, durationHours, adminUid } = req.body;
+
+        if (!targetUid) {
+            return res.status(400).json({ error: "Target user UID is required" });
+        }
+
+        const userRef = db.collection('users').doc(targetUid);
+        const userDoc = await userRef.get();
+
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const blockData = {
+            isBlocked: true,
+            blockedBy: adminUid || 'system',
+            blockedAt: new Date().toISOString(),
+            blockReason: blockReason || 'Violation of terms',
+            blockType: blockType || 'permanent',
+            blockExpiresAt: null
+        };
+
+        // Handle temporary blocks
+        if (blockType === 'temporary' && durationHours) {
+            const expiresAt = new Date();
+            expiresAt.setHours(expiresAt.getHours() + parseInt(durationHours));
+            blockData.blockExpiresAt = expiresAt.toISOString();
+        }
+
+        await userRef.update({
+            blockInfo: blockData
+        });
+
+        console.log(`🚫 User ${targetUid} blocked by admin ${adminUid || 'system'}`);
+        res.status(200).json({
+            success: true,
+            message: `User ${blockType === 'temporary' ? 'temporarily' : 'permanently'} blocked`,
+            blockInfo: blockData
+        });
+
+    } catch (error) {
+        console.error("Block user error:", error);
+        res.status(500).json({ error: "Failed to block user" });
+    }
+});
+
+// --- ADMIN: UNBLOCK USER ---
+app.post('/api/admin/unblock-user', async (req, res) => {
+    try {
+        const { targetUid, adminUid } = req.body;
+
+        if (!targetUid) {
+            return res.status(400).json({ error: "Target user UID is required" });
+        }
+
+        const userRef = db.collection('users').doc(targetUid);
+        const userDoc = await userRef.get();
+
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const userData = userDoc.data();
+
+        // Check if user is actually blocked
+        if (!userData.blockInfo?.isBlocked) {
+            return res.status(400).json({ error: "User is not currently blocked" });
+        }
+
+        const unblockData = {
+            isBlocked: false,
+            blockedBy: null,
+            blockedAt: null,
+            blockReason: 'Unblocked by admin',
+            blockExpiresAt: null,
+            blockType: null,
+            unblockedBy: adminUid || 'system',
+            unblockedAt: new Date().toISOString()
+        };
+
+        await userRef.update({
+            blockInfo: unblockData
+        });
+
+        console.log(`🔓 User ${targetUid} unblocked by admin ${adminUid || 'system'}`);
+        res.status(200).json({
+            success: true,
+            message: "User successfully unblocked"
+        });
+
+    } catch (error) {
+        console.error("Unblock user error:", error);
+        res.status(500).json({ error: "Failed to unblock user" });
+    }
+});
 app.post('/api/products/receive', async (req, res) => {
     const { uid, productId } = req.body;
 
