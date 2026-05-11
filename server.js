@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
 const admin = require('firebase-admin');
+const rateLimit = require('express-rate-limit');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 // 1. CONFIGURATION
 dotenv.config();
@@ -49,10 +50,25 @@ app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json());
 
+// 3.1 RATE LIMITING MIDDLEWARE
+const loginRegisterLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 30, // limit each IP to 30 requests per windowMs
+  message: 'Too many login/register attempts from this IP, please try again after an hour',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  handler: (req, res) => {
+    console.log('limit successful - IP:', req.ip, 'exceeded 30 requests per hour');
+    res.status(429).json({ 
+      error: 'Too many login/register attempts. Please try again later.' 
+    });
+  }
+});
+
 // 4. ROUTES
 
 // Registration Endpoint
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', loginRegisterLimiter, async (req, res) => {
     try {
         const { phoneDigits, password, inviteCode, payPassword } = req.body;
 
@@ -136,7 +152,7 @@ app.get('/', (req, res) => {
 });
 
 // --- UPDATED LOGIN ROUTE ---
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', loginRegisterLimiter, async (req, res) => {
     try {
         const { phoneDigits, password } = req.body;
         const email = `251${phoneDigits}@phone.auth`;
