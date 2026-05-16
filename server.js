@@ -6,6 +6,7 @@ const morgan = require('morgan');
 const dotenv = require('dotenv');
 const admin = require('firebase-admin');
 const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 // 1. CONFIGURATION
 dotenv.config();
@@ -251,6 +252,39 @@ app.post('/api/login', loginRegisterLimiter, async (req, res) => {
             }
         }
 
+        // ============================================
+        // 🔒 SINGLE CONCURRENT LOGIN CHECK
+        // ============================================
+        // Check if user already has an active session that hasn't expired
+        if (userData.sessionExpiresAt) {
+            const sessionExpiresAt = userData.sessionExpiresAt.toDate ? 
+                userData.sessionExpiresAt.toDate() : 
+                new Date(userData.sessionExpiresAt);
+            
+            if (new Date() < sessionExpiresAt) {
+                // Session is still active - deny login
+                console.log(`🚫 Login denied for user ${uid} - already logged in from another device`);
+                return res.status(403).json({ 
+                    error: "Account is already logged in on another device. Please logout from the other device first.",
+                    code: "ALREADY_LOGGED_IN"
+                });
+            }
+        }
+
+        // Generate new session token and expiration (30 minutes)
+        const sessionToken = crypto.randomBytes(32).toString('hex');
+        const sessionExpiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+
+        // Update user document with session info
+        await db.collection('users').doc(uid).update({
+            sessionToken: sessionToken,
+            sessionExpiresAt: admin.firestore.Timestamp.fromDate(sessionExpiresAt),
+            lastLogin: loginTime,
+            lastLoginIP: loginIPAddress
+        });
+
+        console.log(`✅ Session created for user ${uid}, expires at ${sessionExpiresAt.toISOString()}`);
+
         // 3. LOG LOGIN ATTEMPT
         try {
             const loginData = {
@@ -288,6 +322,8 @@ app.post('/api/login', loginRegisterLimiter, async (req, res) => {
         res.status(200).json({
             success: true,
             uid: uid,
+            sessionToken: sessionToken,
+            sessionExpiresAt: sessionExpiresAt.toISOString(),
             message: "Login successful"
         });
 
@@ -1544,6 +1580,39 @@ app.get('/api/products/:id', (req, res) => {
         res.status(404).json({ error: "Product not found" });
     }
 });
+// ============================================
+// 🔒 LOGOUT ROUTE - Clear session
+// ============================================
+app.post('/api/logout', async (req, res) => {
+    try {
+        const { uid } = req.body;
+        
+        if (!uid) {
+            return res.status(400).json({ error: "User UID is required" });
+        }
+        
+        const userRef = db.collection('users').doc(uid);
+        const userDoc = await userRef.get();
+        
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: "User not found" });
+        }
+        
+        // Clear the session token and expiration
+        await userRef.update({
+            sessionToken: null,
+            sessionExpiresAt: null
+        });
+        
+        console.log(`✅ User ${uid} logged out successfully`);
+        res.json({ success: true, message: "Logged out successfully" });
+        
+    } catch (error) {
+        console.error("Logout Error:", error);
+        res.status(500).json({ error: "Internal server error during logout." });
+    }
+});
+
 // GET TEAM STATS AND MEMBERS
 app.get('/api/team-stats/:uid', async (req, res) => {
     try {
