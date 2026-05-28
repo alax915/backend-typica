@@ -38,7 +38,7 @@ function getVipLevel(referralCount = 0) {
 app.use(cors({
   origin: [
     '#', 
-    'http://tech-zone2.netlify.app', 
+    'https://tech-zone2.netlify.app', 
     process.env.FRONTEND_URL // Add your live website URL here later via Render dashboard
   ].filter(Boolean) // Removes undefined values if FRONTEND_URL isn't set yet
 }));
