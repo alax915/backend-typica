@@ -40,6 +40,8 @@ app.use(cors({
     '#', 
     'https://tech-zone2.netlify.app',
     'https://tech-zone3.netlify.app',
+    'http://localhost:3000',
+    'http://127.0.0.1:5500',
     process.env.FRONTEND_URL // Add your live website URL here later via Render dashboard
   ].filter(Boolean) // Removes undefined values if FRONTEND_URL isn't set yet
 }));
