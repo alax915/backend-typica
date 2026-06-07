@@ -24,6 +24,7 @@ try {
 }
 
 const db = admin.firestore();
+db.settings({ ignoreUndefinedProperties: true });
 
 function getVipLevel(referralCount = 0) {
     if (referralCount >= 70) return 'VIP5';
@@ -38,10 +39,7 @@ function getVipLevel(referralCount = 0) {
 app.use(cors({
   origin: [
     '#', 
-    'https://tech-zone2.netlify.app',
-    'https://tech-zone3.netlify.app',
-    'http://localhost:3000',
-    'http://127.0.0.1:5500',
+    'http://tech-zone2.netlify.app', 
     process.env.FRONTEND_URL // Add your live website URL here later via Render dashboard
   ].filter(Boolean) // Removes undefined values if FRONTEND_URL isn't set yet
 }));
@@ -455,9 +453,10 @@ app.post('/api/user/update-bank', async (req, res) => {
 // --- NEW ROUTE: RECHARGE REQUEST ---
 app.post('/api/recharge/request', async (req, res) => {
     try {
-        const { uid, amount, method, phoneNumber } = req.body;
+        const { uid, amount, method, phoneNumber, transactionRef, transactionId } = req.body || {};
+        const finalTransactionRef = (transactionRef || transactionId || '').toString().trim();
 
-        if (!uid || !amount || !method) {
+        if (!uid || !amount || !method || !finalTransactionRef) {
             return res.status(400).json({ error: "Missing required recharge data" });
         }
 
@@ -468,6 +467,8 @@ app.post('/api/recharge/request', async (req, res) => {
             amount: parseFloat(amount),
             method: method,
             phoneNumber: phoneNumber || "Unknown",
+            transactionRef: finalTransactionRef,
+            transactionId: finalTransactionRef,
             status: 'pending', // Requires manual admin approval to update balance
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
@@ -2049,7 +2050,7 @@ app.post('/api/admin/withdrawal/reject/:id', verifyAdmin, async (req, res) => {
 app.post('/api/admin/recharge/approve/:id', verifyAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const { adminVerifiedRef, adminUid } = req.body;
+        const { adminVerifiedRef, adminUid } = req.body || {};
         
         if (!adminVerifiedRef) {
             return res.status(400).json({ error: 'Admin verification reference required' });
@@ -2083,18 +2084,21 @@ app.post('/api/admin/recharge/approve/:id', verifyAdmin, async (req, res) => {
                 adminVerifiedRef
             });
             
-            // Log transaction
+            const userTransactionRef = rechargeData.transactionRef || rechargeData.transactionId || null;
             const txRef = db.collection('transactions').doc();
-            t.set(txRef, {
+            const txData = {
                 userId: rechargeData.uid,
                 type: 'recharge_approved',
                 amount: rechargeData.amount,
-                description: `Recharge approved via ${rechargeData.method}`,
-                method: rechargeData.method,
-                userTransactionRef: rechargeData.transactionRef,
+                description: `Recharge approved via ${rechargeData.method || 'unknown'}`,
+                method: rechargeData.method || 'unknown',
                 adminVerifiedRef,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
-            });
+            };
+            if (userTransactionRef) {
+                txData.userTransactionRef = userTransactionRef;
+            }
+            t.set(txRef, txData);
         });
         
         // Log activity
@@ -2115,7 +2119,7 @@ app.post('/api/admin/recharge/approve/:id', verifyAdmin, async (req, res) => {
 app.post('/api/admin/recharge/reject/:id', verifyAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const { adminUid } = req.body;
+        const { adminUid } = req.body || {};
         
         await db.runTransaction(async (t) => {
             const rechargeRef = db.collection('recharges').doc(id);
